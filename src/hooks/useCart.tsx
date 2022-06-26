@@ -1,7 +1,7 @@
-import { createContext, ReactNode, useContext, useState } from 'react';
-import { toast } from 'react-toastify';
-import { api } from '../services/api';
-import { Product, Stock } from '../types';
+import { createContext, ReactNode, useContext, useState } from "react";
+import { toast } from "react-toastify";
+import { api } from "../services/api";
+import { Product, Stock } from "../types";
 
 interface CartProviderProps {
   children: ReactNode;
@@ -21,30 +21,72 @@ interface CartContextData {
 
 const CartContext = createContext<CartContextData>({} as CartContextData);
 
+const localStorageKey = "@RocketShoes:cart";
+
+function updateLocalStorageCart(cart: Product[]) {
+  localStorage.setItem(localStorageKey, JSON.stringify(cart));
+}
+
 export function CartProvider({ children }: CartProviderProps): JSX.Element {
   const [cart, setCart] = useState<Product[]>(() => {
-    // const storagedCart = Buscar dados do localStorage
+    const localStorageCart = localStorage.getItem(localStorageKey);
 
-    // if (storagedCart) {
-    //   return JSON.parse(storagedCart);
-    // }
+    if (localStorageCart) {
+      return JSON.parse(localStorageCart);
+    }
 
     return [];
   });
 
   const addProduct = async (productId: number) => {
     try {
-      // TODO
+      const existingProduct = cart.find(product => product.id === productId);
+
+      // adiciona produto ao carrinho se não existir no carrinho
+      if (!existingProduct) {
+        const { data } = await api.get<Omit<Product, "amount">>(
+          `/products/${productId}`,
+        );
+
+        return setCart(products => {
+          const newState = [
+            ...products,
+            {
+              ...data,
+              amount: 1,
+            },
+          ];
+
+          updateLocalStorageCart(newState);
+          return newState;
+        });
+      }
+
+      // adciona um na quantidade do produto se já existir no carrinho
+      await updateProductAmount({
+        productId: existingProduct.id,
+        amount: existingProduct.amount + 1,
+      });
     } catch {
-      // TODO
+      toast.error("Erro na adição do produto");
     }
   };
 
   const removeProduct = (productId: number) => {
     try {
-      // TODO
-    } catch {
-      // TODO
+      const existingProduct = cart.find(product => product.id === productId);
+
+      if (!existingProduct) {
+        throw new Error("product does not exist in cart");
+      }
+
+      setCart(products => {
+        const newState = products.filter(product => product.id !== productId);
+        updateLocalStorageCart(newState);
+        return newState;
+      });
+    } catch (error) {
+      toast.error("Erro na remoção do produto");
     }
   };
 
@@ -52,10 +94,37 @@ export function CartProvider({ children }: CartProviderProps): JSX.Element {
     productId,
     amount,
   }: UpdateProductAmount) => {
+    if (amount < 1) {
+      return;
+    }
+
     try {
-      // TODO
+      const {
+        data: { amount: amountInStock },
+      } = await api.get<Stock>(`/stock/${productId}`);
+
+      if (amount > amountInStock) {
+        toast.error("Quantidade solicitada fora de estoque");
+        return;
+      }
+
+      setCart(products => {
+        const newState = products.map(product => {
+          if (product.id === productId) {
+            return {
+              ...product,
+              amount,
+            };
+          }
+
+          return product;
+        });
+
+        updateLocalStorageCart(newState);
+        return newState;
+      });
     } catch {
-      // TODO
+      toast.error("Erro na alteração de quantidade do produto");
     }
   };
 
